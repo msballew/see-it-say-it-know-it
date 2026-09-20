@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>See It Say It Know It</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-deep: #1B1512;
+    --panel: #F6EEE0;
+    --panel-ink: #241C16;
+    --accent: #C68A3E;
+    --accent-ink: #241C16;
+    --muted: #B8A990;
+    --danger: #A64B3F;
+    --font-display: 'Fraunces', Georgia, serif;
+    --font-body: 'Work Sans', -apple-system, system-ui, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    height: 100%;
+    margin: 0;
+    font-family: var(--font-body);
+  }
+
+  body {
+    background:
+      linear-gradient(180deg, rgba(20,15,12,0.55) 0%, rgba(20,15,12,0.72) 55%, rgba(20,15,12,0.88) 100%),
+      url('https://images.unsplash.com/photo-1517638851339-a711cfcf3279?fm=jpg&q=70&w=1600&auto=format&fit=crop')
+      center / cover no-repeat fixed;
+    color: var(--panel);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+
+  .wrap { width: 100%; max-width: 380px; }
+
+  h1 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 30px;
+    line-height: 1.15;
+    margin: 0 0 6px;
+    color: #fff;
+    text-shadow: 0 2px 12px rgba(0,0,0,0.35);
+  }
+
+  .tagline {
+    font-size: 14px;
+    color: var(--muted);
+    margin: 0 0 22px;
+  }
+
+  .panel {
+    background: var(--panel);
+    color: var(--panel-ink);
+    border-radius: 16px;
+    padding: 24px;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.35);
+  }
+
+  .tabs { display: flex; gap: 6px; margin-bottom: 18px; }
+
+  .tab {
+    flex: 1;
+    padding: 9px 0;
+    text-align: center;
+    font-family: var(--font-body);
+    font-size: 14px;
+    font-weight: 500;
+    border-radius: 8px;
+    cursor: pointer;
+    color: var(--panel-ink);
+    background: transparent;
+    border: 1px solid rgba(36,28,22,0.15);
+  }
+  .tab.active { background: var(--panel-ink); color: var(--panel); border-color: var(--panel-ink); }
+
+  label {
+    display: block;
+    font-size: 13px;
+    color: rgba(36,28,22,0.65);
+    margin: 14px 0 5px;
+  }
+  label:first-of-type { margin-top: 0; }
+
+  input {
+    width: 100%;
+    padding: 11px 12px;
+    font-size: 15px;
+    font-family: var(--font-body);
+    border-radius: 8px;
+    border: 1px solid rgba(36,28,22,0.2);
+    background: #fff;
+    color: var(--panel-ink);
+  }
+  input:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+
+  button.action {
+    width: 100%;
+    margin-top: 20px;
+    padding: 13px;
+    font-family: var(--font-body);
+    font-size: 15px;
+    font-weight: 600;
+    border-radius: 8px;
+    border: none;
+    background: var(--accent);
+    color: var(--accent-ink);
+    cursor: pointer;
+  }
+  button.action:active { transform: translateY(1px); }
+
+  button.signout {
+    width: 100%;
+    margin-top: 18px;
+    padding: 11px;
+    font-family: var(--font-body);
+    font-size: 14px;
+    border-radius: 8px;
+    border: 1px solid rgba(36,28,22,0.2);
+    background: transparent;
+    color: var(--panel-ink);
+    cursor: pointer;
+  }
+
+  .status {
+    font-size: 13px;
+    color: rgba(36,28,22,0.7);
+    margin-top: 12px;
+    min-height: 16px;
+  }
+  .status.error { color: var(--danger); }
+
+  .placeholder { font-size: 14px; color: rgba(36,28,22,0.65); line-height: 1.5; }
+  .whoami { font-weight: 600; }
+
+  .hidden { display: none; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <h1>See It Say It Know It</h1>
+  <p class="tagline">Learn from what's actually in front of you.</p>
+
+  <div class="panel" id="authBox">
+    <div class="tabs">
+      <div class="tab active" id="tabSignIn">Sign in</div>
+      <div class="tab" id="tabSignUp">Sign up</div>
+    </div>
+
+    <div id="signInForm">
+      <label for="siEmail">Email</label>
+      <input id="siEmail" type="email" autocomplete="email" />
+      <label for="siPassword">Password</label>
+      <input id="siPassword" type="password" autocomplete="current-password" />
+      <button class="action" id="signInBtn">Sign in</button>
+    </div>
+
+    <div id="signUpForm" class="hidden">
+      <label for="suEmail">Email</label>
+      <input id="suEmail" type="email" autocomplete="email" />
+      <label for="suPassword">Password</label>
+      <input id="suPassword" type="password" autocomplete="new-password" placeholder="6+ characters" />
+      <label for="suInvite">Invite code</label>
+      <input id="suInvite" type="text" autocomplete="off" />
+      <button class="action" id="signUpBtn">Create account</button>
+    </div>
+
+    <div class="status" id="authStatus"></div>
+  </div>
+
+  <div class="panel hidden" id="appBox">
+    <p class="placeholder">Signed in as <span class="whoami" id="whoami"></span>.<br><br>Lessons are coming next — the curriculum content and lesson flow are the next piece being built.</p>
+    <button class="signout" id="signOutBtn">Sign out</button>
+  </div>
+</div>
+
+<script type="module">
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const SUPABASE_URL = "https://zdkpvfpqpfrwtjjcihln.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_TjDc0lyanrhpLEP0oZ2v4g_1mayEOKn";
+const SIGNUP_FUNCTION_URL = `${SUPABASE_URL}/functions/v1/signup`;
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+const authBox = document.getElementById("authBox");
+const appBox = document.getElementById("appBox");
+const authStatus = document.getElementById("authStatus");
+const whoami = document.getElementById("whoami");
+
+const tabSignIn = document.getElementById("tabSignIn");
+const tabSignUp = document.getElementById("tabSignUp");
+const signInForm = document.getElementById("signInForm");
+const signUpForm = document.getElementById("signUpForm");
+
+function setStatus(text, isError = false) {
+  authStatus.textContent = text;
+  authStatus.classList.toggle("error", isError);
+}
+
+tabSignIn.onclick = () => {
+  tabSignIn.classList.add("active");
+  tabSignUp.classList.remove("active");
+  signInForm.classList.remove("hidden");
+  signUpForm.classList.add("hidden");
+  setStatus("");
+};
+tabSignUp.onclick = () => {
+  tabSignUp.classList.add("active");
+  tabSignIn.classList.remove("active");
+  signUpForm.classList.remove("hidden");
+  signInForm.classList.add("hidden");
+  setStatus("");
+};
+
+async function showSignedIn() {
+  const { data: { user } } = await supabase.auth.getUser();
+  whoami.textContent = user?.email || "";
+  authBox.classList.add("hidden");
+  appBox.classList.remove("hidden");
+}
+
+document.getElementById("signInBtn").onclick = async () => {
+  const email = document.getElementById("siEmail").value.trim();
+  const password = document.getElementById("siPassword").value;
+  setStatus("Signing in...");
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) { setStatus(error.message, true); return; }
+  showSignedIn();
+};
+
+document.getElementById("signUpBtn").onclick = async () => {
+  const email = document.getElementById("suEmail").value.trim();
+  const password = document.getElementById("suPassword").value;
+  const invite_code = document.getElementById("suInvite").value.trim();
+
+  if (!email || !password || !invite_code) {
+    setStatus("All three fields are required.", true);
+    return;
+  }
+
+  setStatus("Creating your account...");
+  const resp = await fetch(SIGNUP_FUNCTION_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password, invite_code }),
+  });
+  const result = await resp.json();
+  if (!resp.ok) {
+    setStatus(result.error || "Something went wrong creating the account.", true);
+    return;
+  }
+
+  setStatus("Account created — signing you in...");
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) { setStatus(`Account created, but sign-in failed: ${error.message}`, true); return; }
+  showSignedIn();
+};
+
+document.getElementById("signOutBtn").onclick = async () => {
+  await supabase.auth.signOut();
+  appBox.classList.add("hidden");
+  authBox.classList.remove("hidden");
+  setStatus("");
+};
+
+supabase.auth.getSession().then(({ data }) => {
+  if (data.session) showSignedIn();
+});
+</script>
+</body>
+</html>
