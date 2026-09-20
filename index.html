@@ -147,6 +147,19 @@
 
   .hidden { display: none; }
 
+  .fineprint { font-size: 13px; color: rgba(36,28,22,0.6); margin: 12px 0 0; text-align: center; }
+  .fineprint a { color: var(--panel-ink); }
+
+  /* Honeypot: present in the markup for bots to find, invisible and
+     unreachable by keyboard for real visitors. */
+  .hp-field {
+    position: absolute;
+    left: -9999px;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     * { transition: none !important; }
   }
@@ -180,6 +193,20 @@
       <label for="suInvite">Invite code</label>
       <input id="suInvite" type="text" autocomplete="off" />
       <button class="action" id="signUpBtn">Create account</button>
+      <p class="fineprint">Don't have a code? <a href="#" id="showRequestLink">Request one</a></p>
+    </div>
+
+    <div id="requestForm" class="hidden">
+      <label for="reqEmail">Email</label>
+      <input id="reqEmail" type="email" autocomplete="email" />
+      <label for="reqHeard">Where did you hear about this?</label>
+      <input id="reqHeard" type="text" placeholder="optional" />
+      <div class="hp-field" aria-hidden="true">
+        <label for="reqCompany">Company</label>
+        <input id="reqCompany" type="text" tabindex="-1" autocomplete="off" />
+      </div>
+      <button class="action" id="requestBtn">Request access</button>
+      <p class="fineprint"><a href="#" id="backToSignUpLink">← back</a></p>
     </div>
 
     <div class="status" id="authStatus"></div>
@@ -197,6 +224,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const SUPABASE_URL = "https://zdkpvfpqpfrwtjjcihln.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_TjDc0lyanrhpLEP0oZ2v4g_1mayEOKn";
 const SIGNUP_FUNCTION_URL = `${SUPABASE_URL}/functions/v1/signup`;
+const REQUEST_ACCESS_FUNCTION_URL = `${SUPABASE_URL}/functions/v1/request-access`;
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -209,6 +237,7 @@ const tabSignIn = document.getElementById("tabSignIn");
 const tabSignUp = document.getElementById("tabSignUp");
 const signInForm = document.getElementById("signInForm");
 const signUpForm = document.getElementById("signUpForm");
+const requestForm = document.getElementById("requestForm");
 
 function setStatus(text, isError = false) {
   authStatus.textContent = text;
@@ -272,6 +301,40 @@ document.getElementById("signUpBtn").onclick = async () => {
   const { error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) { setStatus(`Account created, but sign-in failed: ${error.message}`, true); return; }
   showSignedIn();
+};
+
+document.getElementById("showRequestLink").onclick = (e) => {
+  e.preventDefault();
+  signUpForm.classList.add("hidden");
+  requestForm.classList.remove("hidden");
+  setStatus("");
+};
+document.getElementById("backToSignUpLink").onclick = (e) => {
+  e.preventDefault();
+  requestForm.classList.add("hidden");
+  signUpForm.classList.remove("hidden");
+  setStatus("");
+};
+
+document.getElementById("requestBtn").onclick = async () => {
+  const email = document.getElementById("reqEmail").value.trim();
+  const heard_about = document.getElementById("reqHeard").value.trim();
+  const company = document.getElementById("reqCompany").value; // honeypot
+
+  if (!email) { setStatus("An email is required.", true); return; }
+
+  setStatus("Sending your request...");
+  const resp = await fetch(REQUEST_ACCESS_FUNCTION_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, heard_about, company }),
+  });
+  const result = await resp.json();
+  if (!resp.ok) {
+    setStatus(result.error || "Something went wrong sending your request.", true);
+    return;
+  }
+  setStatus("Request sent — check your email to confirm, and watch for an invite code.");
 };
 
 document.getElementById("signOutBtn").onclick = async () => {
