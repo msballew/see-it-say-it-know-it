@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Approve access — See It Say It Know It</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --panel: #F6EEE0;
+    --panel-ink: #241C16;
+    --accent: #C68A3E;
+    --danger: #A64B3F;
+    --font-display: 'Fraunces', Georgia, serif;
+    --font-body: 'Work Sans', -apple-system, system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: #1B1512;
+    color: var(--panel);
+    font-family: var(--font-body);
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px;
+  }
+  .panel {
+    background: var(--panel);
+    color: var(--panel-ink);
+    border-radius: 16px;
+    padding: 28px;
+    max-width: 380px;
+    width: 100%;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.35);
+  }
+  h1 { font-family: var(--font-display); font-size: 22px; margin: 0 0 14px; }
+  button {
+    width: 100%;
+    padding: 13px;
+    font-family: var(--font-body);
+    font-size: 15px;
+    font-weight: 600;
+    border-radius: 8px;
+    border: none;
+    background: var(--accent);
+    color: var(--panel-ink);
+    cursor: pointer;
+    margin-top: 6px;
+  }
+  button:disabled { opacity: 0.6; cursor: default; }
+  .status { font-size: 14px; margin-top: 14px; line-height: 1.5; }
+  .status.error { color: var(--danger); }
+  .status.success { color: #2e7d5b; font-weight: 600; }
+  code {
+    display: block;
+    margin-top: 8px;
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    background: #fff;
+    padding: 10px;
+    border-radius: 8px;
+  }
+</style>
+</head>
+<body>
+<div class="panel">
+  <h1>Approve this access request?</h1>
+  <p>Nothing happens until you click the button below.</p>
+  <button id="approveBtn">Approve</button>
+  <div class="status" id="status"></div>
+</div>
+
+<script>
+const params = new URLSearchParams(window.location.search);
+const requestId = params.get("id");
+const token = params.get("token");
+const statusEl = document.getElementById("status");
+const btn = document.getElementById("approveBtn");
+
+// Supply the same values used in the app's own client.
+const SUPABASE_URL = "https://zdkpvfpqpfrwtjjcihln.supabase.co";
+const APPROVE_FUNCTION_URL = `${SUPABASE_URL}/functions/v1/approve-request`;
+
+if (!requestId || !token) {
+  statusEl.textContent = "This link is missing information and can't be used.";
+  statusEl.classList.add("error");
+  btn.disabled = true;
+}
+
+btn.onclick = async () => {
+  btn.disabled = true;
+  statusEl.textContent = "Approving...";
+  statusEl.className = "status";
+  try {
+    const resp = await fetch(APPROVE_FUNCTION_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ request_id: requestId, token }),
+    });
+    const result = await resp.json();
+    if (!resp.ok) {
+      statusEl.textContent = result.error || "Something went wrong.";
+      statusEl.classList.add("error");
+      btn.disabled = false;
+      return;
+    }
+    statusEl.innerHTML = `Approved and emailed.<code>${result.code}</code>`;
+    statusEl.classList.add("success");
+    if (result.warning) {
+      statusEl.innerHTML += `<br><span style="color:#A64B3F;">${result.warning}</span>`;
+    }
+  } catch (e) {
+    statusEl.textContent = `Error: ${e.message}`;
+    statusEl.classList.add("error");
+    btn.disabled = false;
+  }
+};
+</script>
+</body>
+</html>
