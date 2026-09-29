@@ -160,6 +160,61 @@
     overflow: hidden;
   }
 
+  .level-btn {
+    width: 100%;
+    text-align: left;
+    padding: 13px 14px;
+    margin-top: 10px;
+    border-radius: 10px;
+    border: 1px solid rgba(36,28,22,0.15);
+    background: #fff;
+    cursor: pointer;
+    font-family: var(--font-body);
+  }
+  .level-btn .level-name { font-weight: 600; font-size: 15px; }
+  .level-btn .level-sub { font-size: 12px; color: rgba(36,28,22,0.55); margin-top: 2px; }
+  .level-btn:disabled { opacity: 0.5; cursor: default; }
+
+  #preview, #sceneImg {
+    width: 100%;
+    border-radius: 12px;
+    background: #000;
+    display: block;
+    margin-top: 14px;
+  }
+
+  .checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 14px;
+    font-size: 13px;
+    color: rgba(36,28,22,0.7);
+  }
+  .checkbox-row input { width: auto; }
+
+  #caption {
+    direction: rtl;
+    text-align: right;
+    font-size: 17px;
+    min-height: 44px;
+    background: rgba(36,28,22,0.05);
+    border-radius: 8px;
+    padding: 10px;
+  }
+
+  button.action.stop { background: var(--danger); color: #fff; }
+  button.link {
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--panel-ink);
+    text-decoration: underline;
+    font-family: var(--font-body);
+    font-size: 13px;
+    cursor: pointer;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     * { transition: none !important; }
   }
@@ -213,18 +268,50 @@
   </div>
 
   <div class="panel hidden" id="appBox">
-    <p class="placeholder">Signed in as <span class="whoami" id="whoami"></span>.<br><br>Lessons are coming next — the curriculum content and lesson flow are the next piece being built.</p>
+    <p class="placeholder">Signed in as <span class="whoami" id="whoami"></span>.</p>
+
+    <div id="noCourseMsg" class="placeholder hidden">No course is set up yet — check back soon.</div>
+
+    <div id="levelSelect" class="hidden">
+      <p class="placeholder" id="levelSelectIntro">Pick a level to start:</p>
+      <div id="levelList"></div>
+    </div>
+
+    <div id="lessonScreen" class="hidden">
+      <p class="placeholder" id="lessonHeader"></p>
+
+      <video id="preview" autoplay playsinline muted class="hidden"></video>
+      <img id="sceneImg" class="hidden" crossorigin="anonymous" />
+
+      <label class="checkbox-row" id="cameraToggleRow">
+        <input type="checkbox" id="useCameraToggle" /> Use my camera (optional)
+      </label>
+
+      <button class="action" id="startLessonBtn">Start lesson</button>
+      <button class="action stop hidden" id="stopLessonBtn">End lesson</button>
+
+      <div class="status" id="lessonStatus"></div>
+      <div id="caption"></div>
+
+      <button class="link" id="restartLevelBtn" style="margin-top:16px;">Restart this level</button>
+      <br>
+      <button class="link" id="changeLevelBtn" style="margin-top:8px;">Change level</button>
+    </div>
+
     <button class="signout" id="signOutBtn">Sign out</button>
   </div>
 </div>
 
 <script type="module">
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { GoogleGenAI, Modality } from "https://esm.sh/@google/genai";
 
 const SUPABASE_URL = "https://zdkpvfpqpfrwtjjcihln.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_TjDc0lyanrhpLEP0oZ2v4g_1mayEOKn";
 const SIGNUP_FUNCTION_URL = `${SUPABASE_URL}/functions/v1/signup`;
 const REQUEST_ACCESS_FUNCTION_URL = `${SUPABASE_URL}/functions/v1/request-access`;
+const TOKEN_FUNCTION_URL = `${SUPABASE_URL}/functions/v1/gemini-token`;
+const MODEL = "gemini-3.1-flash-live-preview";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -232,6 +319,27 @@ const authBox = document.getElementById("authBox");
 const appBox = document.getElementById("appBox");
 const authStatus = document.getElementById("authStatus");
 const whoami = document.getElementById("whoami");
+
+const noCourseMsg = document.getElementById("noCourseMsg");
+const levelSelect = document.getElementById("levelSelect");
+const levelList = document.getElementById("levelList");
+const lessonScreen = document.getElementById("lessonScreen");
+const lessonHeader = document.getElementById("lessonHeader");
+const preview = document.getElementById("preview");
+const sceneImg = document.getElementById("sceneImg");
+const cameraToggleRow = document.getElementById("cameraToggleRow");
+const useCameraToggle = document.getElementById("useCameraToggle");
+const startLessonBtn = document.getElementById("startLessonBtn");
+const stopLessonBtn = document.getElementById("stopLessonBtn");
+const lessonStatus = document.getElementById("lessonStatus");
+const captionEl = document.getElementById("caption");
+const restartLevelBtn = document.getElementById("restartLevelBtn");
+const changeLevelBtn = document.getElementById("changeLevelBtn");
+
+function setLessonStatus(text, isError = false) {
+  lessonStatus.textContent = text;
+  lessonStatus.classList.toggle("error", isError);
+}
 
 const tabSignIn = document.getElementById("tabSignIn");
 const tabSignUp = document.getElementById("tabSignUp");
@@ -261,12 +369,374 @@ tabSignUp.onclick = () => {
   setStatus("");
 };
 
+// ---------- Course / level / lesson state ----------
+let currentUser = null;
+let currentCourse = null;   // { id, native_language, target_language, name }
+
 async function showSignedIn() {
   const { data: { user } } = await supabase.auth.getUser();
+  currentUser = user;
   whoami.textContent = user?.email || "";
   authBox.classList.add("hidden");
   appBox.classList.remove("hidden");
+  await loadCourseAndRoute();
 }
+
+// Only one course exists right now (English -> Hebrew), but this fetches
+// it from the database rather than assuming it — a second course (a new
+// native language) is a new row, and this picks it up with zero code
+// changes. If more than one ever exists, this just uses the first; a real
+// course-picker screen is future work for when that's actually true.
+async function loadCourseAndRoute() {
+  levelSelect.classList.add("hidden");
+  lessonScreen.classList.add("hidden");
+  noCourseMsg.classList.add("hidden");
+
+  const { data: courses, error } = await supabase.from("courses").select("*").limit(1);
+  if (error || !courses || courses.length === 0) {
+    noCourseMsg.classList.remove("hidden");
+    return;
+  }
+  currentCourse = courses[0];
+
+  const { data: progress } = await supabase
+    .from("user_course_progress")
+    .select("level_id, lesson_number")
+    .eq("course_id", currentCourse.id)
+    .maybeSingle();
+
+  if (progress) {
+    showLessonScreen(progress.level_id, progress.lesson_number);
+  } else {
+    showLevelSelect();
+  }
+}
+
+async function showLevelSelect() {
+  lessonScreen.classList.add("hidden");
+  levelSelect.classList.remove("hidden");
+  levelList.innerHTML = "Loading levels...";
+
+  const { data: levels } = await supabase
+    .from("levels").select("id, name, sort_order")
+    .eq("course_id", currentCourse.id).order("sort_order");
+
+  levelList.innerHTML = "";
+  for (const level of (levels || [])) {
+    const { count } = await supabase
+      .from("lessons").select("*", { count: "exact", head: true })
+      .eq("level_id", level.id);
+
+    const btn = document.createElement("button");
+    btn.className = "level-btn";
+    btn.innerHTML = `<div class="level-name">${level.name}</div><div class="level-sub">${count ? `${count} lesson${count === 1 ? "" : "s"}` : "Coming soon"}</div>`;
+    if (!count) {
+      btn.disabled = true;
+    } else {
+      btn.onclick = () => selectLevel(level.id);
+    }
+    levelList.appendChild(btn);
+  }
+}
+
+async function selectLevel(levelId) {
+  const { error } = await supabase.from("user_course_progress").upsert(
+    { user_id: currentUser.id, course_id: currentCourse.id, level_id: levelId, lesson_number: 1 },
+    { onConflict: "user_id,course_id" }
+  );
+  if (error) { alert(`Couldn't save your level choice: ${error.message}`); return; }
+  showLessonScreen(levelId, 1);
+}
+
+async function showLessonScreen(levelId, lessonNumber) {
+  levelSelect.classList.add("hidden");
+  lessonScreen.classList.remove("hidden");
+
+  const { data: level } = await supabase.from("levels").select("name").eq("id", levelId).single();
+  const { data: lesson } = await supabase
+    .from("lessons").select("title, is_checkpoint")
+    .eq("level_id", levelId).eq("lesson_number", lessonNumber).single();
+
+  lessonHeader.textContent = `${level?.name || "Level"} — Lesson ${lessonNumber}${lesson?.title ? `: ${lesson.title}` : ""}${lesson?.is_checkpoint ? " (review)" : ""}`;
+}
+
+restartLevelBtn.onclick = async () => {
+  if (liveSession) stopLesson();
+  const { data: progress } = await supabase
+    .from("user_course_progress").select("level_id")
+    .eq("course_id", currentCourse.id).maybeSingle();
+  if (!progress) return;
+  if (!confirm("Restart this level from Lesson 1?")) return;
+  await supabase.from("user_course_progress").upsert(
+    { user_id: currentUser.id, course_id: currentCourse.id, level_id: progress.level_id, lesson_number: 1 },
+    { onConflict: "user_id,course_id" }
+  );
+  showLessonScreen(progress.level_id, 1);
+};
+
+changeLevelBtn.onclick = () => {
+  if (liveSession) stopLesson();
+  showLevelSelect();
+};
+
+// ---------- Lesson session: Gemini Live audio/video + function calls ----------
+let mediaStream = null;
+let audioCtx = null;
+let playCtx = null;
+let nextPlayTime = 0;
+let scriptNode = null;
+let videoTimer = null;
+let liveSession = null;
+let currentSessionId = null;
+let usingCamera = false;
+let currentSceneUrl = null;
+
+function downsampleTo16k(float32Array, inputSampleRate) {
+  if (inputSampleRate === 16000) return float32Array;
+  const ratio = inputSampleRate / 16000;
+  const newLength = Math.round(float32Array.length / ratio);
+  const result = new Float32Array(newLength);
+  for (let i = 0; i < newLength; i++) {
+    const srcIndex = i * ratio;
+    const i0 = Math.floor(srcIndex);
+    const i1 = Math.min(i0 + 1, float32Array.length - 1);
+    const t = srcIndex - i0;
+    result[i] = float32Array[i0] * (1 - t) + float32Array[i1] * t;
+  }
+  return result;
+}
+
+function floatTo16BitPCM(float32Array) {
+  const buffer = new ArrayBuffer(float32Array.length * 2);
+  const view = new DataView(buffer);
+  for (let i = 0, offset = 0; i < float32Array.length; i++, offset += 2) {
+    const s = Math.max(-1, Math.min(1, float32Array[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+  return buffer;
+}
+
+function arrayBufferToBase64(buffer) {
+  let binary = "";
+  const bytes = new Uint8Array(buffer);
+  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
+
+function playIncomingAudio(base64Data) {
+  const binary = atob(base64Data);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  const int16 = new Int16Array(bytes.buffer);
+  const float32 = new Float32Array(int16.length);
+  for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768;
+
+  const audioBuffer = playCtx.createBuffer(1, float32.length, 24000);
+  audioBuffer.copyToChannel(float32, 0);
+
+  const source = playCtx.createBufferSource();
+  source.buffer = audioBuffer;
+  source.connect(playCtx.destination);
+
+  const now = playCtx.currentTime;
+  const startAt = Math.max(now, nextPlayTime);
+  source.start(startAt);
+  nextPlayTime = startAt + audioBuffer.duration;
+}
+
+// Handles the two function-calling tools declared in gemini-token: records
+// word-level results, and moves the lesson within the current level. Each
+// call must get a response sent back or the model will stall waiting for
+// one.
+//
+// UNVERIFIED (no network access to test against a live key): the exact
+// shape of an incoming tool-call message (`message.toolCall.functionCalls`)
+// and the method to reply (`liveSession.sendToolResponse(...)`) are per
+// current Gemini Live API docs, not confirmed against this specific
+// @google/genai SDK version. If tool calls silently don't fire, or the
+// model seems to hang after one, check the SDK's actual shape first —
+// this is the single biggest risk in this file.
+async function handleToolCall(toolCall) {
+  const responses = [];
+  for (const call of (toolCall.functionCalls || [])) {
+    let result = { ok: true };
+    try {
+      if (call.name === "record_word_result") {
+        const { word, tier, result: outcome } = call.args || {};
+        const { error } = await supabase.rpc("record_word_progress", {
+          p_course_id: currentCourse.id,
+          p_language: currentCourse.target_language,
+          p_word: word,
+          p_tier: tier || 0,
+          p_result: outcome,
+          p_session_id: currentSessionId,
+        });
+        if (error) result = { ok: false, error: error.message };
+      } else if (call.name === "advance_lesson") {
+        const { direction } = call.args || {};
+        const { data, error } = await supabase.rpc("advance_lesson", {
+          p_course_id: currentCourse.id,
+          p_direction: direction,
+        });
+        if (error) result = { ok: false, error: error.message };
+        else result = { ok: true, new_lesson_number: data };
+      }
+    } catch (e) {
+      result = { ok: false, error: String(e) };
+    }
+    responses.push({ id: call.id, name: call.name, response: result });
+  }
+  if (responses.length && liveSession) {
+    liveSession.sendToolResponse({ functionResponses: responses });
+  }
+}
+
+async function startLesson() {
+  startLessonBtn.disabled = true;
+  usingCamera = useCameraToggle.checked;
+  setLessonStatus(usingCamera ? "Requesting camera and mic..." : "Requesting mic...");
+
+  try {
+    const audioConstraints = { channelCount: 1, echoCancellation: true, noiseSuppression: true };
+    mediaStream = await navigator.mediaDevices.getUserMedia(
+      usingCamera
+        ? { audio: audioConstraints, video: { facingMode: "environment" } }
+        : { audio: audioConstraints }
+    );
+  } catch (e) {
+    setLessonStatus(`Couldn't access mic/camera: ${e.message}`, true);
+    startLessonBtn.disabled = false;
+    return;
+  }
+  if (usingCamera) {
+    preview.srcObject = mediaStream;
+    preview.classList.remove("hidden");
+  }
+
+  setLessonStatus("Getting a session key...");
+  const { data: { session } } = await supabase.auth.getSession();
+  const resp = await fetch(TOKEN_FUNCTION_URL, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ course_id: currentCourse.id }),
+  });
+  if (!resp.ok) {
+    setLessonStatus(`Couldn't start lesson: ${await resp.text()}`, true);
+    startLessonBtn.disabled = false;
+    mediaStream.getTracks().forEach((t) => t.stop());
+    return;
+  }
+  const lessonData = await resp.json();
+  currentSessionId = lessonData.sessionId;
+
+  // Scene, if this lesson has one attached — otherwise camera (if enabled)
+  // is the only visual input, or the session runs audio-only.
+  currentSceneUrl = lessonData.scene?.image_url || null;
+  if (currentSceneUrl && !usingCamera) {
+    sceneImg.src = currentSceneUrl;
+    sceneImg.classList.remove("hidden");
+  }
+
+  setLessonStatus("Connecting...");
+  const ai = new GoogleGenAI({ apiKey: lessonData.token });
+
+  liveSession = await ai.live.connect({
+    model: MODEL,
+    config: {
+      responseModalities: [Modality.AUDIO],
+      outputAudioTranscription: {},
+    },
+    callbacks: {
+      onopen: () => setLessonStatus("Connected — go ahead"),
+      onmessage: (message) => {
+        const content = message.serverContent;
+        if (content?.outputTranscription?.text) {
+          captionEl.textContent = content.outputTranscription.text;
+        }
+        const parts = content?.modelTurn?.parts || [];
+        for (const part of parts) {
+          if (part.inlineData?.data) playIncomingAudio(part.inlineData.data);
+        }
+        if (message.toolCall) handleToolCall(message.toolCall);
+      },
+      onerror: (e) => setLessonStatus(`Error: ${e.message}`, true),
+      onclose: (e) => setLessonStatus(`Closed: ${e.reason || "session ended"}`),
+    },
+  });
+
+  // ---- Mic capture: downsample to 16kHz mono PCM16, stream continuously ----
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const micSource = audioCtx.createMediaStreamSource(mediaStream);
+  scriptNode = audioCtx.createScriptProcessor(4096, 1, 1);
+  micSource.connect(scriptNode);
+  scriptNode.connect(audioCtx.destination);
+  scriptNode.onaudioprocess = (e) => {
+    const input = e.inputBuffer.getChannelData(0);
+    const down = downsampleTo16k(input, audioCtx.sampleRate);
+    const pcm = floatTo16BitPCM(down);
+    liveSession.sendRealtimeInput({
+      audio: { data: arrayBufferToBase64(pcm), mimeType: "audio/pcm;rate=16000" },
+    });
+  };
+
+  playCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+  nextPlayTime = 0;
+
+  // ---- Frame source: live camera if enabled, else the lesson's scene, else no video ----
+  if (usingCamera || currentSceneUrl) {
+    const canvas = document.createElement("canvas");
+    const ctx2d = canvas.getContext("2d");
+    const frameSource = usingCamera ? preview : sceneImg;
+    videoTimer = setInterval(() => {
+      const w = usingCamera ? preview.videoWidth : sceneImg.naturalWidth;
+      const h = usingCamera ? preview.videoHeight : sceneImg.naturalHeight;
+      if (!w) return;
+      canvas.width = w;
+      canvas.height = h;
+      try {
+        ctx2d.drawImage(frameSource, 0, 0, w, h);
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
+        const base64 = dataUrl.split(",")[1];
+        liveSession.sendRealtimeInput({ video: { data: base64, mimeType: "image/jpeg" } });
+      } catch (err) {
+        // Most likely a canvas-tainting error from a cross-origin scene
+        // image without proper CORS headers.
+        setLessonStatus(`Frame capture error: ${err.message}`, true);
+      }
+    }, 1000);
+  }
+
+  cameraToggleRow.classList.add("hidden");
+  startLessonBtn.classList.add("hidden");
+  stopLessonBtn.classList.remove("hidden");
+}
+
+async function stopLesson() {
+  if (videoTimer) clearInterval(videoTimer);
+  if (scriptNode) scriptNode.disconnect();
+  if (audioCtx) audioCtx.close();
+  if (playCtx) playCtx.close();
+  if (mediaStream) mediaStream.getTracks().forEach((t) => t.stop());
+  if (liveSession) liveSession.close();
+
+  if (currentSessionId) {
+    await supabase.from("sessions").update({ ended_at: new Date().toISOString() }).eq("id", currentSessionId);
+  }
+
+  setLessonStatus("Ended.");
+  captionEl.textContent = "";
+  preview.classList.add("hidden");
+  sceneImg.classList.add("hidden");
+  cameraToggleRow.classList.remove("hidden");
+  startLessonBtn.disabled = false;
+  startLessonBtn.classList.remove("hidden");
+  stopLessonBtn.classList.add("hidden");
+  liveSession = null;
+  currentSessionId = null;
+}
+
+startLessonBtn.onclick = () => startLesson().catch((e) => setLessonStatus(`Error: ${e.message}`, true));
+stopLessonBtn.onclick = () => stopLesson();
 
 document.getElementById("signInBtn").onclick = async () => {
   const email = document.getElementById("siEmail").value.trim();
@@ -341,7 +811,13 @@ document.getElementById("requestBtn").onclick = async () => {
 };
 
 document.getElementById("signOutBtn").onclick = async () => {
+  if (liveSession) await stopLesson();
   await supabase.auth.signOut();
+  levelSelect.classList.add("hidden");
+  lessonScreen.classList.add("hidden");
+  noCourseMsg.classList.add("hidden");
+  currentCourse = null;
+  currentUser = null;
   appBox.classList.add("hidden");
   authBox.classList.remove("hidden");
   setStatus("");
