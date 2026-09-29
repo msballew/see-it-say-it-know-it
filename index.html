@@ -322,6 +322,7 @@ document.getElementById("requestBtn").onclick = async () => {
   const email = document.getElementById("reqEmail").value.trim();
   const heard_about = document.getElementById("reqHeard").value.trim();
   const company = document.getElementById("reqCompany").value; // honeypot
+  const ref = new URLSearchParams(window.location.search).get("ref") || undefined;
 
   if (!email) { setStatus("An email is required.", true); return; }
 
@@ -329,7 +330,7 @@ document.getElementById("requestBtn").onclick = async () => {
   const resp = await fetch(REQUEST_ACCESS_FUNCTION_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, heard_about, company, origin: window.location.origin }),
+    body: JSON.stringify({ email, heard_about, company, origin: window.location.origin, ref }),
   });
   const result = await resp.json();
   if (!resp.ok) {
