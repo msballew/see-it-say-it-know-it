@@ -175,23 +175,13 @@
   .level-btn .level-sub { font-size: 12px; color: rgba(36,28,22,0.55); margin-top: 2px; }
   .level-btn:disabled { opacity: 0.5; cursor: default; }
 
-  #preview, #sceneImg {
+  #sceneImg {
     width: 100%;
     border-radius: 12px;
     background: #000;
     display: block;
     margin-top: 14px;
   }
-
-  .checkbox-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 14px;
-    font-size: 13px;
-    color: rgba(36,28,22,0.7);
-  }
-  .checkbox-row input { width: auto; }
 
   #caption {
     direction: rtl;
@@ -280,12 +270,7 @@
     <div id="lessonScreen" class="hidden">
       <p class="placeholder" id="lessonHeader"></p>
 
-      <video id="preview" autoplay playsinline muted class="hidden"></video>
       <img id="sceneImg" class="hidden" crossorigin="anonymous" />
-
-      <label class="checkbox-row" id="cameraToggleRow">
-        <input type="checkbox" id="useCameraToggle" /> Use my camera (optional)
-      </label>
 
       <button class="action" id="startLessonBtn">Start lesson</button>
       <button class="action stop hidden" id="stopLessonBtn">End lesson</button>
@@ -325,10 +310,7 @@ const levelSelect = document.getElementById("levelSelect");
 const levelList = document.getElementById("levelList");
 const lessonScreen = document.getElementById("lessonScreen");
 const lessonHeader = document.getElementById("lessonHeader");
-const preview = document.getElementById("preview");
 const sceneImg = document.getElementById("sceneImg");
-const cameraToggleRow = document.getElementById("cameraToggleRow");
-const useCameraToggle = document.getElementById("useCameraToggle");
 const startLessonBtn = document.getElementById("startLessonBtn");
 const stopLessonBtn = document.getElementById("stopLessonBtn");
 const lessonStatus = document.getElementById("lessonStatus");
@@ -488,7 +470,6 @@ let scriptNode = null;
 let videoTimer = null;
 let liveSession = null;
 let currentSessionId = null;
-let usingCamera = false;
 let currentSceneUrl = null;
 
 function downsampleTo16k(float32Array, inputSampleRate) {
@@ -593,24 +574,15 @@ async function handleToolCall(toolCall) {
 
 async function startLesson() {
   startLessonBtn.disabled = true;
-  usingCamera = useCameraToggle.checked;
-  setLessonStatus(usingCamera ? "Requesting camera and mic..." : "Requesting mic...");
+  setLessonStatus("Requesting mic...");
 
   try {
     const audioConstraints = { channelCount: 1, echoCancellation: true, noiseSuppression: true };
-    mediaStream = await navigator.mediaDevices.getUserMedia(
-      usingCamera
-        ? { audio: audioConstraints, video: { facingMode: "environment" } }
-        : { audio: audioConstraints }
-    );
+    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
   } catch (e) {
-    setLessonStatus(`Couldn't access mic/camera: ${e.message}`, true);
+    setLessonStatus(`Couldn't access mic: ${e.message}`, true);
     startLessonBtn.disabled = false;
     return;
-  }
-  if (usingCamera) {
-    preview.srcObject = mediaStream;
-    preview.classList.remove("hidden");
   }
 
   setLessonStatus("Getting a session key...");
@@ -629,10 +601,11 @@ async function startLesson() {
   const lessonData = await resp.json();
   currentSessionId = lessonData.sessionId;
 
-  // Scene, if this lesson has one attached — otherwise camera (if enabled)
-  // is the only visual input, or the session runs audio-only.
+  // Scene, if this lesson has one attached — otherwise the session runs
+  // audio-only. There is no live camera feed; the tutor sees only the
+  // curated scene photo, never the learner's own surroundings.
   currentSceneUrl = lessonData.scene?.image_url || null;
-  if (currentSceneUrl && !usingCamera) {
+  if (currentSceneUrl) {
     sceneImg.src = currentSceneUrl;
     sceneImg.classList.remove("hidden");
   }
@@ -645,6 +618,12 @@ async function startLesson() {
     config: {
       responseModalities: [Modality.AUDIO],
       outputAudioTranscription: {},
+      // The tutor's persona + this lesson's real content, and the two
+      // function-calling tools — minted server-side in gemini-token, sent
+      // here rather than locked into the ephemeral token itself. See the
+      // VERIFIED note in gemini-token/index.ts for why.
+      systemInstruction: { parts: [{ text: lessonData.systemInstruction }] },
+      tools: lessonData.tools,
     },
     callbacks: {
       onopen: () => setLessonStatus("Connected — go ahead"),
@@ -682,19 +661,21 @@ async function startLesson() {
   playCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
   nextPlayTime = 0;
 
-  // ---- Frame source: live camera if enabled, else the lesson's scene, else no video ----
-  if (usingCamera || currentSceneUrl) {
+  // ---- Frame source: the lesson's curated scene photo, sent once as a still frame ----
+  // (Not a live feed — just enough for the tutor to reference what's in the
+  // photo. Re-sent on an interval only because the Live API expects video
+  // input as a stream; the image itself never changes mid-lesson.)
+  if (currentSceneUrl) {
     const canvas = document.createElement("canvas");
     const ctx2d = canvas.getContext("2d");
-    const frameSource = usingCamera ? preview : sceneImg;
     videoTimer = setInterval(() => {
-      const w = usingCamera ? preview.videoWidth : sceneImg.naturalWidth;
-      const h = usingCamera ? preview.videoHeight : sceneImg.naturalHeight;
+      const w = sceneImg.naturalWidth;
+      const h = sceneImg.naturalHeight;
       if (!w) return;
       canvas.width = w;
       canvas.height = h;
       try {
-        ctx2d.drawImage(frameSource, 0, 0, w, h);
+        ctx2d.drawImage(sceneImg, 0, 0, w, h);
         const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
         const base64 = dataUrl.split(",")[1];
         liveSession.sendRealtimeInput({ video: { data: base64, mimeType: "image/jpeg" } });
@@ -706,7 +687,6 @@ async function startLesson() {
     }, 1000);
   }
 
-  cameraToggleRow.classList.add("hidden");
   startLessonBtn.classList.add("hidden");
   stopLessonBtn.classList.remove("hidden");
 }
@@ -725,9 +705,7 @@ async function stopLesson() {
 
   setLessonStatus("Ended.");
   captionEl.textContent = "";
-  preview.classList.add("hidden");
   sceneImg.classList.add("hidden");
-  cameraToggleRow.classList.remove("hidden");
   startLessonBtn.disabled = false;
   startLessonBtn.classList.remove("hidden");
   stopLessonBtn.classList.add("hidden");
