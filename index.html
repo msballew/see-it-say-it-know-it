@@ -595,12 +595,28 @@ async function startLesson() {
     config: {
       responseModalities: [Modality.AUDIO],
       outputAudioTranscription: {},
-      // The tutor's persona + this lesson's real content, and the two
-      // function-calling tools — minted server-side in gemini-token, sent
+      // The tutor's persona + this lesson's real content, and the
+      // function-calling tool — minted server-side in gemini-token, sent
       // here rather than locked into the ephemeral token itself. See the
       // VERIFIED note in gemini-token/index.ts for why.
       systemInstruction: { parts: [{ text: lessonData.systemInstruction }] },
       tools: lessonData.tools,
+      // Faster end-of-speech detection so an interruption, once the
+      // server does register it, cuts in quickly instead of waiting out
+      // a long default silence window (ai.google.dev/gemini-api/docs/
+      // live-api/capabilities recommends 500-800ms). This does NOT fix
+      // the separate confirmed Google bug where barge-in sometimes never
+      // registers at all if the learner is already talking right as the
+      // model's turn begins (discuss.ai.google.dev/t/gemini-3-1-flash-
+      // live-preview-live-api-server-never-emits-interrupted-barge-in-
+      // when-the-user-is-already-speaking-as-the-models-turn-begins/174346)
+      // — that's server-side, no client fix exists. Shorter tutor turns
+      // (persona.md point 8, and the new "one short exchange, then stop"
+      // instruction below) shrink how much damage that bug can do when
+      // it does hit.
+      realtimeInputConfig: {
+        automaticActivityDetection: { silenceDurationMs: 500 },
+      },
     },
     callbacks: {
       onopen: () => setLessonStatus("Connected — starting..."),
