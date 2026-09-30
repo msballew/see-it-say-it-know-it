@@ -471,6 +471,8 @@ let videoTimer = null;
 let liveSession = null;
 let currentSessionId = null;
 let currentSceneUrl = null;
+let currentTranscript = "";
+let transcriptNeedsReset = false;
 
 function downsampleTo16k(float32Array, inputSampleRate) {
   if (inputSampleRate === 16000) return float32Array;
@@ -644,8 +646,24 @@ async function startLesson() {
       onopen: () => setLessonStatus("Connected — starting..."),
       onmessage: (message) => {
         const content = message.serverContent;
+        // outputTranscription arrives as a stream of small chunks across a
+        // turn, not the full sentence each time — confirmed by Google's own
+        // Live API reference ("the last output transcription of this turn
+        // is sent before generationComplete/interrupted, which are followed
+        // by turnComplete"). Replacing the caption with just each incoming
+        // chunk (the previous behavior) is what made it look like random
+        // words flashing by — this accumulates them into the full sentence
+        // instead, and only clears once the next turn's speech starts.
         if (content?.outputTranscription?.text) {
-          captionEl.textContent = content.outputTranscription.text;
+          if (transcriptNeedsReset) {
+            currentTranscript = "";
+            transcriptNeedsReset = false;
+          }
+          currentTranscript += content.outputTranscription.text;
+          captionEl.textContent = currentTranscript;
+        }
+        if (content?.turnComplete) {
+          transcriptNeedsReset = true;
         }
         const parts = content?.modelTurn?.parts || [];
         for (const part of parts) {
@@ -735,6 +753,8 @@ async function stopLesson() {
 
   setLessonStatus("Ended.");
   captionEl.textContent = "";
+  currentTranscript = "";
+  transcriptNeedsReset = false;
   sceneImg.classList.add("hidden");
   startLessonBtn.disabled = false;
   startLessonBtn.classList.remove("hidden");
