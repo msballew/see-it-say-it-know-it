@@ -577,6 +577,8 @@ async function handleToolCall(toolCall) {
 async function startLesson() {
   startLessonBtn.disabled = true;
   setLessonStatus("Requesting mic...");
+  currentTranscript = "";
+  transcriptNeedsReset = false;
 
   try {
     const audioConstraints = { channelCount: 1, echoCancellation: true, noiseSuppression: true };
@@ -628,7 +630,15 @@ async function startLesson() {
   }
 
   setLessonStatus("Connecting...");
-  const ai = new GoogleGenAI({ apiKey: lessonData.token });
+  // VERIFIED from the SDK's own console warning (seen directly in testing):
+  // "The SDK's ephemeral token support is in v1alpha only. Please use
+  // const ai = new GoogleGenAI({apiKey: token.name, httpOptions: {
+  // apiVersion: 'v1alpha' }}); before session connection." Without this,
+  // the session still connects, but the model apparently doesn't honor the
+  // locked systemInstruction/tools — it comes back as a generic assistant
+  // ("What topic are you interested in exploring today?") instead of the
+  // Hebrew tutor persona, which matches this being the missing piece.
+  const ai = new GoogleGenAI({ apiKey: lessonData.token, httpOptions: { apiVersion: "v1alpha" } });
 
   liveSession = await ai.live.connect({
     model: MODEL,
