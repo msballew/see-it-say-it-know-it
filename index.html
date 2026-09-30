@@ -373,10 +373,23 @@ async function showSignedIn() {
 // native language) is a new row, and this picks it up with zero code
 // changes. If more than one ever exists, this just uses the first; a real
 // course-picker screen is future work for when that's actually true.
+// There's no more level/lesson to pick or route between — progress is
+// now entirely derived from word_progress (which words this learner
+// already knows), computed fresh by gemini-token/index.ts at the start
+// of every session. So this just loads the course and goes straight to
+// the practice screen; the old levelSelect screen and its "Restart this
+// level" / "Change level" controls are hidden below since there's no
+// longer a "level" for them to act on. This is a mechanical consequence
+// of retiring the levels/lessons tables, not a redesign — if you want an
+// actual "pick your starting point" screen designed for the new system,
+// that's a real follow-up worth doing deliberately rather than me
+// inventing one here.
 async function loadCourseAndRoute() {
   levelSelect.classList.add("hidden");
   lessonScreen.classList.add("hidden");
   noCourseMsg.classList.add("hidden");
+  restartLevelBtn.classList.add("hidden");
+  changeLevelBtn.classList.add("hidden");
 
   const { data: courses, error } = await supabase.from("courses").select("*").limit(1);
   if (error || !courses || courses.length === 0) {
@@ -384,86 +397,14 @@ async function loadCourseAndRoute() {
     return;
   }
   currentCourse = courses[0];
-
-  const { data: progress } = await supabase
-    .from("user_course_progress")
-    .select("level_id, lesson_number")
-    .eq("course_id", currentCourse.id)
-    .maybeSingle();
-
-  if (progress) {
-    showLessonScreen(progress.level_id, progress.lesson_number);
-  } else {
-    showLevelSelect();
-  }
+  showLessonScreen();
 }
 
-async function showLevelSelect() {
-  lessonScreen.classList.add("hidden");
-  levelSelect.classList.remove("hidden");
-  levelList.innerHTML = "Loading levels...";
-
-  const { data: levels } = await supabase
-    .from("levels").select("id, name, sort_order")
-    .eq("course_id", currentCourse.id).order("sort_order");
-
-  levelList.innerHTML = "";
-  for (const level of (levels || [])) {
-    const { count } = await supabase
-      .from("lessons").select("*", { count: "exact", head: true })
-      .eq("level_id", level.id);
-
-    const btn = document.createElement("button");
-    btn.className = "level-btn";
-    btn.innerHTML = `<div class="level-name">${level.name}</div><div class="level-sub">${count ? `${count} lesson${count === 1 ? "" : "s"}` : "Coming soon"}</div>`;
-    if (!count) {
-      btn.disabled = true;
-    } else {
-      btn.onclick = () => selectLevel(level.id);
-    }
-    levelList.appendChild(btn);
-  }
-}
-
-async function selectLevel(levelId) {
-  const { error } = await supabase.from("user_course_progress").upsert(
-    { user_id: currentUser.id, course_id: currentCourse.id, level_id: levelId, lesson_number: 1 },
-    { onConflict: "user_id,course_id" }
-  );
-  if (error) { alert(`Couldn't save your level choice: ${error.message}`); return; }
-  showLessonScreen(levelId, 1);
-}
-
-async function showLessonScreen(levelId, lessonNumber) {
+function showLessonScreen() {
   levelSelect.classList.add("hidden");
   lessonScreen.classList.remove("hidden");
-
-  const { data: level } = await supabase.from("levels").select("name").eq("id", levelId).single();
-  const { data: lesson } = await supabase
-    .from("lessons").select("title, is_checkpoint")
-    .eq("level_id", levelId).eq("lesson_number", lessonNumber).single();
-
-  lessonHeader.textContent = `${level?.name || "Level"} — Lesson ${lessonNumber}${lesson?.title ? `: ${lesson.title}` : ""}${lesson?.is_checkpoint ? " (review)" : ""}`;
+  lessonHeader.textContent = "Hebrew practice";
 }
-
-restartLevelBtn.onclick = async () => {
-  if (liveSession) stopLesson();
-  const { data: progress } = await supabase
-    .from("user_course_progress").select("level_id")
-    .eq("course_id", currentCourse.id).maybeSingle();
-  if (!progress) return;
-  if (!confirm("Restart this level from Lesson 1?")) return;
-  await supabase.from("user_course_progress").upsert(
-    { user_id: currentUser.id, course_id: currentCourse.id, level_id: progress.level_id, lesson_number: 1 },
-    { onConflict: "user_id,course_id" }
-  );
-  showLessonScreen(progress.level_id, 1);
-};
-
-changeLevelBtn.onclick = () => {
-  if (liveSession) stopLesson();
-  showLevelSelect();
-};
 
 // ---------- Lesson session: Gemini Live audio/video + function calls ----------
 let mediaStream = null;
@@ -544,10 +485,13 @@ function playIncomingAudio(base64Data) {
 // model seems to hang after one, check the SDK's actual shape first —
 // this is the single biggest risk in this file.
 async function handleToolCall(toolCall) {
-  // Logged deliberately — whether these two tools actually fire, and
-  // whether the DB calls they make succeed, has been unverified since this
-  // was written (no live key to test against at the time). This is the
-  // only way to see it from a real session's console.
+  // Logged deliberately — whether this actually fires, and whether the DB
+  // call it makes succeeds, has been unverified since this was written
+  // (no live key to test against at the time). This is the only way to
+  // see it from a real session's console. record_word_result is the only
+  // tool now — advance_lesson is gone along with the lessons it advanced;
+  // progress is entirely what record_word_progress() writes to
+  // word_progress (see adaptive-curriculum-migration.sql).
   console.log("[toolCall] received", toolCall);
   const responses = [];
   for (const call of (toolCall.functionCalls || [])) {
@@ -564,14 +508,6 @@ async function handleToolCall(toolCall) {
           p_session_id: currentSessionId,
         });
         if (error) result = { ok: false, error: error.message };
-      } else if (call.name === "advance_lesson") {
-        const { direction } = call.args || {};
-        const { data, error } = await supabase.rpc("advance_lesson", {
-          p_course_id: currentCourse.id,
-          p_direction: direction,
-        });
-        if (error) result = { ok: false, error: error.message };
-        else result = { ok: true, new_lesson_number: data };
       }
     } catch (e) {
       result = { ok: false, error: String(e) };
