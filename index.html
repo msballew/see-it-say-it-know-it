@@ -214,7 +214,7 @@
 
 <div class="wrap">
   <h1>See It Say It Know It</h1>
-  <p class="tagline">Learn from what's actually in front of you.</p>
+  <p class="tagline">Nobody learned to talk by studying grammar. Why start now?</p>
 
   <div class="panel" id="authBox">
     <div class="tabs">
@@ -641,7 +641,7 @@ async function startLesson() {
       tools: lessonData.tools,
     },
     callbacks: {
-      onopen: () => setLessonStatus("Connected — go ahead"),
+      onopen: () => setLessonStatus("Connected — starting..."),
       onmessage: (message) => {
         const content = message.serverContent;
         if (content?.outputTranscription?.text) {
@@ -656,6 +656,21 @@ async function startLesson() {
       onerror: (e) => setLessonStatus(`Error: ${e.message}`, true),
       onclose: (e) => setLessonStatus(`Closed: ${e.reason || "session ended"}`),
     },
+  });
+
+  // Kick the tutor off. Without this, the Live API sits silently waiting
+  // for the learner to speak first — even with a system instruction saying
+  // to start right away, it won't produce a turn on its own. This is a
+  // widely-reported gap, not specific to this app (Google AI Developer
+  // Forum: "Can't make the model start speaking..."; googleapis/python-genai
+  // issue #1533, "model can't initiate the conversation"). The confirmed
+  // workaround, and the one used here: send a trivial client-content turn
+  // right after connecting so the model's *response* to it is what actually
+  // opens the lesson, driven by the system instruction — the learner never
+  // sees this line, only the tutor's reply to it.
+  liveSession.sendClientContent({
+    turns: [{ role: "user", parts: [{ text: "(the learner has just joined — begin the lesson)" }] }],
+    turnComplete: true,
   });
 
   // ---- Mic capture: downsample to 16kHz mono PCM16, stream continuously ----
