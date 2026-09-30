@@ -276,7 +276,11 @@
       <button class="action stop hidden" id="stopLessonBtn">End lesson</button>
 
       <div class="status" id="lessonStatus"></div>
-      <div id="caption"></div>
+      <!-- No on-screen caption of the tutor's speech, by design — see the
+           note in the onmessage handler below. Left as a hidden element
+           rather than removed, in case a later "reveal after recall"
+           feature wants this spot. -->
+      <div id="caption" class="hidden"></div>
 
       <button class="link" id="restartLevelBtn" style="margin-top:16px;">Restart this level</button>
       <br>
@@ -668,13 +672,19 @@ async function startLesson() {
         // chunk (the previous behavior) is what made it look like random
         // words flashing by — this accumulates them into the full sentence
         // instead, and only clears once the next turn's speech starts.
+        // Per persona.md's own design ("Text never appears on screen until
+        // after successful recall — this is an audio-first method, not a
+        // read-along"), the tutor's speech is never shown as on-screen
+        // captions — that's the whole pedagogical point of a live audio
+        // tutor. Logged to the console instead, so we can still verify
+        // what was said while testing without putting it on screen.
         if (content?.outputTranscription?.text) {
           if (transcriptNeedsReset) {
             currentTranscript = "";
             transcriptNeedsReset = false;
           }
           currentTranscript += content.outputTranscription.text;
-          captionEl.textContent = currentTranscript;
+          console.log("[tutor]", currentTranscript);
         }
         if (content?.turnComplete) {
           transcriptNeedsReset = true;
