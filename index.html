@@ -630,15 +630,19 @@ async function startLesson() {
   }
 
   setLessonStatus("Connecting...");
-  // VERIFIED from the SDK's own console warning (seen directly in testing):
-  // "The SDK's ephemeral token support is in v1alpha only. Please use
-  // const ai = new GoogleGenAI({apiKey: token.name, httpOptions: {
-  // apiVersion: 'v1alpha' }}); before session connection." Without this,
-  // the session still connects, but the model apparently doesn't honor the
-  // locked systemInstruction/tools — it comes back as a generic assistant
-  // ("What topic are you interested in exploring today?") instead of the
-  // Hebrew tutor persona, which matches this being the missing piece.
-  const ai = new GoogleGenAI({ apiKey: lessonData.token, httpOptions: { apiVersion: "v1alpha" } });
+  // TEMPORARY DIAGNOSTIC — using the real API key instead of the ephemeral
+  // token, to confirm a real, currently-open Google bug: ephemeral-token
+  // Live API sessions silently ignore systemInstruction (confirmed by
+  // multiple independent reports — discuss.ai.google.dev/t/
+  // live-api-with-ephemeral-token-ignores-the-system-instruction/113346 —
+  // matching exactly what we saw: generic non-tutor responses despite a
+  // correctly-sent systemInstruction). This line MUST be reverted back to
+  // the ephemeral-token version below before this goes anywhere near real
+  // users — it exposes the real Gemini API key in the browser.
+  //
+  // REVERT TO:
+  // const ai = new GoogleGenAI({ apiKey: lessonData.token, httpOptions: { apiVersion: "v1alpha" } });
+  const ai = new GoogleGenAI({ apiKey: lessonData.diagnosticApiKey });
 
   liveSession = await ai.live.connect({
     model: MODEL,
