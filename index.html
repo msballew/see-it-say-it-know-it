@@ -544,6 +544,11 @@ function playIncomingAudio(base64Data) {
 // model seems to hang after one, check the SDK's actual shape first —
 // this is the single biggest risk in this file.
 async function handleToolCall(toolCall) {
+  // Logged deliberately — whether these two tools actually fire, and
+  // whether the DB calls they make succeed, has been unverified since this
+  // was written (no live key to test against at the time). This is the
+  // only way to see it from a real session's console.
+  console.log("[toolCall] received", toolCall);
   const responses = [];
   for (const call of (toolCall.functionCalls || [])) {
     let result = { ok: true };
@@ -571,6 +576,7 @@ async function handleToolCall(toolCall) {
     } catch (e) {
       result = { ok: false, error: String(e) };
     }
+    console.log("[toolCall]", call.name, call.args, "->", result);
     responses.push({ id: call.id, name: call.name, response: result });
   }
   if (responses.length && liveSession) {
@@ -717,6 +723,17 @@ async function startLesson() {
 
   // ---- Mic capture: downsample to 16kHz mono PCM16, stream continuously ----
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  // VERIFIED pattern (Chrome's own autoplay-policy guidance, and widely
+  // documented as "AudioContext was not allowed to start"): a fresh
+  // AudioContext can come up already suspended, especially after several
+  // awaits since the click that created it (getUserMedia, the token
+  // fetch, ai.live.connect all happened first). If it's suspended,
+  // onaudioprocess never fires — no error, just silent, permanent mic
+  // capture failure. This matches exactly what was reported: the tutor
+  // talking on and on because it never actually received any audio from
+  // the mic to react to. resume() on an already-running context is a
+  // harmless no-op, so this is safe either way.
+  await audioCtx.resume();
   const micSource = audioCtx.createMediaStreamSource(mediaStream);
   scriptNode = audioCtx.createScriptProcessor(4096, 1, 1);
   micSource.connect(scriptNode);
@@ -731,6 +748,7 @@ async function startLesson() {
   };
 
   playCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+  await playCtx.resume();
   nextPlayTime = 0;
 
   // ---- Frame source: the lesson's curated scene photo, sent once as a still frame ----
@@ -761,6 +779,7 @@ async function startLesson() {
 
   startLessonBtn.classList.add("hidden");
   stopLessonBtn.classList.remove("hidden");
+  setLessonStatus("Listening — go ahead");
 }
 
 async function stopLesson() {
